@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Student Management - Simple Frontend</title>
+  <style>
+    body{font-family:Inter,ui-sans-serif,system-ui,Segoe UI,Roboto,Arial;margin:24px;background:#f6f8fa}
+    .card{background:#fff;border-radius:10px;box-shadow:0 6px 18px rgba(20,20,30,0.06);padding:18px;margin-bottom:16px;max-width:900px;margin:auto}
+    h1{margin:0 0 12px 0;font-size:24px}
+    label{display:block;margin:8px 0 4px}
+    input[type=text], input[type=email]{width:100%;padding:8px;border-radius:6px;border:1px solid #e6e9ef}
+    button{background:#2563eb;color:#fff;border:none;padding:8px 12px;border-radius:8px;cursor:pointer}
+    button.secondary{background:#6b7280}
+    .student{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px dashed #eee}
+    .meta{color:#374151;font-size:13px}
+    .small{font-size:12px;color:#6b7280}
+    .actions button{margin-left:6px}
+    #status{font-size:14px;color:#065f46;margin-bottom:12px}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Student Management (Frontend)</h1>
+    <div id="status">Status: <span id="statustext">—</span></div>
+
+    <div style="display:grid;grid-template-columns:1fr 260px;gap:20px;align-items:start">
+      <div>
+        <label for="roll">Roll</label>
+        <input id="roll" placeholder="eg. CS101" />
+        <label for="name">Name</label>
+        <input id="name" placeholder="eg. Alice" />
+        <label for="email">Email (optional)</label>
+        <input id="email" placeholder="eg. alice@example.com" />
+        <div style="margin-top:12px">
+          <button id="createBtn">Create Student</button>
+          <button class="secondary" id="refreshBtn">Refresh</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="small">API Host</div>
+        <input id="apiHost" value="http://127.0.0.1:5000" style="width:100%;padding:6px;margin-top:6px;border-radius:6px;border:1px solid #e6e9ef" />
+        <div class="small" style="margin-top:8px">Change this if backend is deployed online.</div>
+      </div>
+    </div>
+
+    <hr style="margin:18px 0" />
+
+    <div id="list">
+      <h3>Students</h3>
+      <div id="studentsContainer">Loading…</div>
+    </div>
+  </div>
+
+<script>
+const $ = id => document.getElementById(id);
+const statustext = $('statustext');
+const studentsContainer = $('studentsContainer');
+
+function setStatus(s, ok=true){
+  statustext.textContent = s;
+  statustext.style.color = ok ? '#065f46' : '#b91c1c';
+}
+
+function api(path, opts={}){
+  const host = $('apiHost').value.replace(/\/$/, '');
+  return fetch(host + path, opts).then(async res => {
+    const type = res.headers.get("content-type") || "";
+    let data = type.includes("application/json") ? await res.json() : await res.text();
+    if (!res.ok) throw {status: res.status, body: data};
+    return data;
+  });
+}
+
+async function loadStudents(){
+  studentsContainer.innerHTML = 'Loading…';
+  try{
+    const data = await api('/students');
+    if (!Array.isArray(data)) throw new Error("Invalid response");
+
+    if (data.length === 0){
+      studentsContainer.innerHTML = '<div class="small">No students added yet.</div>';
+    } else {
+      renderStudents(data);
+    }
+    setStatus("Loaded " + data.length + " student(s)");
+  }catch(err){
+    studentsContainer.innerHTML = '<div class="small" style="color:red">Failed to load.</div>';
+    setStatus("Failed to load students", false);
+  }
+}
+
+function renderStudents(items){
+  studentsContainer.innerHTML = "";
+  items.forEach(s => {
+    const div = document.createElement("div");
+    div.className = "student";
+    div.innerHTML = `
+      <div>
+        <strong>${escape(s.roll)}</strong> — ${escape(s.name)}
+        <div class="meta">ID: ${s.id} • ${escape(s.email || "--")} • 
+        <span class="small">${new Date(s.created_at).toLocaleString()}</span></div>
+      </div>
+      <div class="actions">
+        <button onclick="editStudent(${s.id})">Edit</button>
+        <button onclick="deleteStudent(${s.id})">Delete</button>
+      </div>
+    `;
+    studentsContainer.appendChild(div);
+  });
+}
+
+function escape(s){
+  return String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+}
+
+async function deleteStudent(id){
+  if (!confirm("Delete student ID " + id + "?")) return;
+  try{
+    await api('/students/' + id, {method:"DELETE"});
+    setStatus("Deleted student " + id);
+    loadStudents();
+  }catch(err){
+    setStatus("Delete failed", false);
+  }
+}
+
+async function editStudent(id){
+  try {
+    const s = await api('/students/' + id);
+    const name = prompt("Edit name", s.name);
+    if (name === null) return;
+
+    const roll = prompt("Edit roll", s.roll);
+    if (roll === null) return;
+
+    const email = prompt("Edit email", s.email || "");
+    if (email === null) return;
+
+    await api('/students/' + id, {
+      method:"PUT",
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name, roll, email})
+    });
+
+    setStatus("Updated student " + id);
+    loadStudents();
+  } catch(err) {
+    setStatus("Update failed", false);
+  }
+}
+
+$('createBtn').onclick = async () => {
+  const roll = $('roll').value.trim();
+  const name = $('name').value.trim();
+  const email = $('email').value.trim();
+
+  if (!roll || !name){
+    alert("Roll & Name are required");
+    return;
+  }
+
+  try{
+    await api('/students', {
+      method:"POST",
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({roll, name, email})
+    });
+    setStatus("Created student " + name);
+    $('roll').value = '';
+    $('name').value = '';
+    $('email').value = '';
+    loadStudents();
+  }catch(err){
+    setStatus("Create failed", false);
+  }
+};
+
+$('refreshBtn').onclick = loadStudents;
+loadStudents();
+</script>
+
+</body>
+</html>
